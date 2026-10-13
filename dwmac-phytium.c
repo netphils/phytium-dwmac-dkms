@@ -6,6 +6,7 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/version.h>
+#include <linux/dma-map-ops.h>
 #include "stmmac.h"
 #include "stmmac_platform.h"
 
@@ -164,6 +165,21 @@ static int dwmac_phytium_probe(struct platform_device *pdev)
 			return -ENODEV; 
 		}
 	}
+
+	/* FTGM0001 has no _DMA property and no IORT entry, so the ACPI core
+	 * installs dma_dummy_ops for it (see acpi_dma_configure_id() with
+	 * DEV_DMA_NOT_SUPPORTED). dma_dummy_ops.dma_supported() always returns 0
+	 * and it has no ->alloc(), so dma_set_mask() fails with -EIO and
+	 * dma_alloc_coherent() silently returns NULL, which breaks ifup with
+	 * "DMA descriptors allocation failed" / -ENOMEM.
+	 *
+	 * Drop the dummy ops so the generic dma-direct implementation is used,
+	 * and make sure a 32-bit coherent mask is programmed.
+	 */
+	set_dma_ops(&pdev->dev, NULL);
+	if (!pdev->dev.dma_mask)
+		pdev->dev.dma_mask = &pdev->dev.coherent_dma_mask;
+	dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
 
 	ret = dwmac_phytium_get_resources(pdev, &stmmac_res);
 	if (ret)
